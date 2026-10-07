@@ -8,3 +8,9 @@ Thumbs.db
 *.egg-info/
 dist/
 build/
+.env
+forecast.db
+nul
+.cursor/
+.serena/
+.ruff_cache/

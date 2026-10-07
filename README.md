@@ -1,6 +1,6 @@
-# SPCX Forecast App
+# E-Forecast
 
-Prophet tabanlı günlük hisse fiyat tahmin uygulaması. Streamlit arayüzü ile geçmiş fiyatları ve güven aralıklı tahminleri görselleştirir.
+Prophet tabanlı günlük hisse fiyat tahmin uygulaması. Streamlit arayüzü ile geçmiş fiyatları, güven aralıklı tahminleri ve anlık haberleri bir arada sunar.
 
 > **Uyarı:** Yatırım tavsiyesi değildir; yalnızca eğitim amaçlıdır.
 

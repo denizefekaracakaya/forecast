@@ -2,8 +2,14 @@
 """Weekly backtest runner for CI."""
 
 import sys
+from pathlib import Path
 
-from forecasting import MAPE_THRESHOLD, run_backtest_check
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
+
+from forecast.config import MAPE_THRESHOLD
+from forecast.forecasting.tuning import run_backtest_check
 
 
 def main() -> int:

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family:sans-serif;padding:32px;background:#f8f9fa;">
+<div style="max-width:480px;margin:auto;background:#fff;border-radius:8px;padding:32px;">
+<h2 style="margin-top:0;">E-Forecast</h2>
+{% if lang == "tr" %}
+<p>Merhaba {{ username }},</p>
+<p>Şifreni sıfırlamak için aşağıdaki butona tıkla:</p>
+{% else %}
+<p>Hello {{ username }},</p>
+<p>Click the button below to reset your password:</p>
+{% endif %}
+<div style="text-align:center;margin:24px 0;">
+<a href="{{ link }}" style="display:inline-block;padding:12px 32px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">
+{% if lang == "tr" %}Şifreyi Sıfırla{% else %}Reset Password{% endif %}
+</a>
+</div>
+{% if lang == "tr" %}
+<p>veya bu bağlantıyı tarayıcına yapıştır:</p>
+{% else %}
+<p>Or paste this link in your browser:</p>
+{% endif %}
+<p style="word-break:break-all;font-size:0.85rem;color:#6b7280;">{{ link }}</p>
+<p style="color:#9ca3af;font-size:0.85rem;">
+{% if lang == "tr" %}Bu bağlantı 1 saat geçerlidir.{% else %}This link expires in 1 hour.{% endif %}
+</p>
+{% if lang == "tr" %}
+<p>Eğer şifre sıfırlama talebinde bulunmadıysan bu e-postayı dikkate alma.</p>
+{% else %}
+<p>If you did not request a password reset, please ignore this email.</p>
+{% endif %}
+<hr style="border:none;border-top:1px solid #f0f0f0;margin:24px 0;">
+<p style="color:#9ca3af;font-size:0.75rem;">E-Forecast</p>
+</div>
+</body>
+</html>
