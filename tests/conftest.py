@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
 import pandas as pd
 import pytest
 
@@ -64,3 +61,18 @@ def normalized_prophet_df() -> pd.DataFrame:
         "rolling_mean_7": rolling_7.values.astype(float),
         "rsi": rsi.values.astype(float),
     })
+
+
+@pytest.fixture(autouse=True)
+def _no_real_sleeps(request, monkeypatch) -> None:
+    """Skip rate-limit and retry back-off sleeps so provider tests run instantly.
+
+    The rate limiter's own tests are exempt — they measure real waiting.
+    """
+    if request.module.__name__.endswith("test_rate_limiter"):
+        return
+    from forecast.data import rate_limiter
+    from forecast.data.providers import yahoo
+
+    monkeypatch.setattr(rate_limiter.RateLimiter, "wait", lambda self: None)
+    monkeypatch.setattr(yahoo.time, "sleep", lambda _s: None)

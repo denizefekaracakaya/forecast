@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import logging
-import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import yfinance as yf
 
-from forecast.config import settings, SUPPORTED_TICKERS
+from forecast.config import SUPPORTED_TICKERS, settings
 from forecast.data.news.models import NewsItem
 from forecast.data.news.nlp import (
     analyze_sentiment_spacy,
@@ -81,7 +80,7 @@ def _parse_date(raw: str | int | None) -> datetime | None:
     if raw is None:
         return None
     if isinstance(raw, int | float):
-        return datetime.fromtimestamp(raw, tz=timezone.utc)
+        return datetime.fromtimestamp(raw, tz=UTC)
     try:
         dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
         return dt
@@ -156,7 +155,7 @@ class NewsProvider:
                 summary=_truncate(summary),
                 source=provider_name,
                 url=url,
-                published_at=published or datetime.now(timezone.utc),
+                published_at=published or datetime.now(UTC),
                 ticker=ticker,
                 sentiment=sentiment,
                 sentiment_score=sentiment_score,
@@ -249,7 +248,7 @@ class NewsProvider:
                 summary=_truncate(summary),
                 source=provider_name,
                 url=url,
-                published_at=published or datetime.now(timezone.utc),
+                published_at=published or datetime.now(UTC),
                 ticker=related[0] if related else "MARKET",
                 sentiment=sentiment,
                 sentiment_score=sentiment_score,

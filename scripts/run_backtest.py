@@ -1,20 +1,36 @@
 #!/usr/bin/env python3
-"""Weekly backtest runner for CI."""
+"""Weekly backtest runner for CI.
 
+Usage:
+    python scripts/run_backtest.py [TICKER] [--trials N] [--threshold PCT]
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+# Allow `python scripts/<name>.py` from anywhere without installing the package.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
-
-from forecast.config import MAPE_THRESHOLD
+from forecast.config import MAPE_THRESHOLD, OPTUNA_N_TRIALS
 from forecast.forecasting.tuning import run_backtest_check
 
 
-def main() -> int:
-    ticker = sys.argv[1] if len(sys.argv) > 1 else "SPCX"
-    result = run_backtest_check(ticker=ticker, threshold=MAPE_THRESHOLD)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Tune and backtest the Prophet model.")
+    parser.add_argument("ticker", nargs="?", default="SPCX")
+    parser.add_argument("--trials", type=int, default=OPTUNA_N_TRIALS, help="Optuna trials")
+    parser.add_argument(
+        "--threshold", type=float, default=MAPE_THRESHOLD, help="Max allowed MAPE (%%)"
+    )
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+    result = run_backtest_check(ticker=args.ticker, threshold=args.threshold, n_trials=args.trials)
 
     m = result["metrics"]
     b = result["baseline"]

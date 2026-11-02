@@ -74,9 +74,9 @@ def is_supported_ticker(ticker: str) -> bool:
 def validate_ticker(ticker: str) -> str:
     ticker = ticker.upper().strip()
     if not is_supported_ticker(ticker):
-        supported = ", ".join(SUPPORTED_TICKERS)
         raise ValueError(
-            f"'{ticker}' desteklenmiyor. Desteklenen semboller: {supported}"
+            f"'{ticker}' desteklenmiyor. Desteklenen {len(SUPPORTED_TICKERS)} sembolün "
+            "listesi için /api/v1/markets uç noktasına bakın."
         )
     return ticker
 

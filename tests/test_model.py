@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 from forecast.forecasting.model import (
-    ModelError,
     _mape,
     _rmse,
     currency_symbol,

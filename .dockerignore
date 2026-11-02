@@ -16,3 +16,7 @@ forecast.db
 _pptx_work/
 tests/
 nul
+.github/
+.ruff_cache/
+.devcontainer/
+requirements-dev.txt

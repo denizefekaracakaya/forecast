@@ -6,15 +6,21 @@ with sensible defaults.  See .env.example for all available options.
 
 from __future__ import annotations
 
+import logging
+import secrets
 from pathlib import Path
 from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Project-root .env works regardless of the current working directory;
+        # a .env in the CWD (if different) takes precedence.
+        env_file=(PROJECT_ROOT / ".env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -47,9 +53,14 @@ class Settings(BaseSettings):
     # Backtest threshold
     MAPE_THRESHOLD: float = 15.0
 
+    # Hyperparameter tuning
+    OPTUNA_N_TRIALS: int = 30
+
     # Gateway server
     GATEWAY_HOST: str = "localhost"
     GATEWAY_PORT: int = 8000
+    # Comma-separated list of allowed CORS origins ("*" allows any origin)
+    CORS_ORIGINS: str = "*"
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://forecast:forecast@localhost:5432/forecast"
@@ -60,10 +71,16 @@ class Settings(BaseSettings):
     NEWSAPI_API_KEY: str = ""
 
     # Auth
-    JWT_SECRET_KEY: str = "eforecast-local-dev-secret-key-2024"
+    # Leave empty (or at a placeholder) to get a random per-process secret —
+    # tokens then stop working whenever the gateway restarts.
+    JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_HOURS: int = 24
     AUTH_REQUIRE_VERIFICATION: bool = True
+    PASSWORD_MIN_LENGTH: int = 8
+    # Brute-force protection: failed logins allowed per identifier per window
+    LOGIN_MAX_ATTEMPTS: int = 5
+    LOGIN_LOCKOUT_SECONDS: int = 300
 
     # Resend (email)
     RESEND_API_KEY: str = ""
@@ -78,6 +95,36 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+_INSECURE_JWT_SECRETS = {
+    "",
+    "change-me-in-production",
+    "eforecast-local-dev-secret-key-2024",
+}
+_ephemeral_jwt_secret: str | None = None
+
+
+def jwt_secret() -> str:
+    """Signing key for auth tokens.
+
+    Falls back to a random per-process key (with a warning) when JWT_SECRET_KEY
+    is unset or a well-known placeholder, so a forgotten setting can never
+    produce forgeable tokens.
+    """
+    global _ephemeral_jwt_secret
+    if settings.JWT_SECRET_KEY not in _INSECURE_JWT_SECRETS:
+        return settings.JWT_SECRET_KEY
+    if _ephemeral_jwt_secret is None:
+        logging.getLogger(__name__).warning(
+            "JWT_SECRET_KEY is unset or a known placeholder; using a random per-process "
+            "secret. Tokens will be invalidated on restart. Set JWT_SECRET_KEY in .env."
+        )
+        _ephemeral_jwt_secret = secrets.token_urlsafe(48)
+    return _ephemeral_jwt_secret
+
+
+def cors_origins() -> list[str]:
+    return [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 
 TICKERS_BIST: list[str] = [
     "AEFES.IS",
@@ -303,8 +350,10 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "use_regressors": settings.MODEL_USE_REGRESSORS,
 }
 
-EXPERIMENTS_CSV = Path(__file__).resolve().parent.parent / "data" / "experiments.csv"
+EXPERIMENTS_CSV = PROJECT_ROOT / "data" / "experiments.csv"
 
 MAPE_THRESHOLD = settings.MAPE_THRESHOLD
+
+OPTUNA_N_TRIALS = settings.OPTUNA_N_TRIALS
 
 INGESTION_INTERVAL = settings.INGESTION_INTERVAL

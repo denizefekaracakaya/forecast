@@ -15,9 +15,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Run backtest
         run: python scripts/run_backtest.py SPCX
+
+      - name: Upload experiment log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiments
+          path: data/experiments.csv
+          if-no-files-found: ignore

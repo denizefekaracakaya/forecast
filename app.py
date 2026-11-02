@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 import httpx
 from dotenv import load_dotenv
@@ -36,6 +36,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CACHE_TTL = settings.CACHE_TTL_SECONDS
+PASSWORD_MIN = settings.PASSWORD_MIN_LENGTH
 GATEWAY_BASE = f"http://{settings.GATEWAY_HOST}:{settings.GATEWAY_PORT}"
 
 DEFAULT_STATE = {
@@ -164,92 +165,55 @@ def cached_price_stats(ticker: str) -> dict | None:
 # ── API helpers (return (data, error)) ────────────────────────────────────
 
 
-def _api_get(path: str) -> tuple[dict | list | None, str | None]:
+def _error_detail(resp: httpx.Response, fallback: str) -> str:
     try:
-        headers = {}
-        if st.session_state.jwt:
-            headers["Authorization"] = f"Bearer {st.session_state.jwt}"
-        resp = httpx.get(f"{GATEWAY_BASE}{path}", headers=headers, timeout=15)
-        if resp.status_code == 401:
-            return None, L("auth.error.invalid_credentials")
-        if resp.status_code == 403:
-            return None, resp.json().get("detail", "Access denied")
-        if resp.status_code == 404:
-            return None, "Not found"
-        resp.raise_for_status()
-        return resp.json(), None
+        detail = resp.json().get("detail", fallback)
+    except Exception:
+        return fallback
+    # FastAPI validation errors (422) carry a list of {loc, msg, ...} objects.
+    if isinstance(detail, list):
+        msgs = [str(d.get("msg", "")).removeprefix("Value error, ") for d in detail if isinstance(d, dict)]
+        return "; ".join(m for m in msgs if m) or fallback
+    return str(detail)
+
+
+def _api_request(method: str, path: str, body: dict | None = None) -> tuple[dict | list | None, str | None]:
+    headers = {}
+    if st.session_state.jwt:
+        headers["Authorization"] = f"Bearer {st.session_state.jwt}"
+    try:
+        resp = httpx.request(method, f"{GATEWAY_BASE}{path}", json=body, headers=headers, timeout=15)
     except httpx.ConnectError:
         return None, L("auth.error.network")
     except Exception as exc:
         return None, str(exc)
+
+    if resp.is_success:
+        try:
+            return resp.json(), None
+        except Exception as exc:
+            return None, str(exc)
+    if resp.status_code == 401:
+        return None, L("auth.error.invalid_credentials")
+    if resp.status_code == 429:
+        return None, L("auth.error.too_many_attempts")
+    return None, _error_detail(resp, f"HTTP {resp.status_code}")
+
+
+def _api_get(path: str) -> tuple[dict | list | None, str | None]:
+    return _api_request("GET", path)
 
 
 def _api_post(path: str, body: dict) -> tuple[dict | None, str | None]:
-    try:
-        headers = {"Content-Type": "application/json"}
-        if st.session_state.jwt:
-            headers["Authorization"] = f"Bearer {st.session_state.jwt}"
-        resp = httpx.post(f"{GATEWAY_BASE}{path}", json=body, headers=headers, timeout=15)
-        if resp.status_code in (400, 409):
-            return resp.json(), resp.json().get("detail", "Bad request")
-        if resp.status_code == 401:
-            return None, L("auth.error.invalid_credentials")
-        if resp.status_code == 403:
-            detail = resp.json().get("detail", "")
-            return None, detail
-        if resp.status_code == 404:
-            return None, resp.json().get("detail", "Not found")
-        if resp.status_code == 410:
-            detail = resp.json().get("detail", "Link expired")
-            return None, detail
-        resp.raise_for_status()
-        return resp.json(), None
-    except httpx.ConnectError:
-        return None, L("auth.error.network")
-    except Exception as exc:
-        return None, str(exc)
+    return _api_request("POST", path, body)
 
 
 def _api_put(path: str, body: dict) -> tuple[dict | None, str | None]:
-    try:
-        headers = {"Content-Type": "application/json"}
-        if st.session_state.jwt:
-            headers["Authorization"] = f"Bearer {st.session_state.jwt}"
-        resp = httpx.put(f"{GATEWAY_BASE}{path}", json=body, headers=headers, timeout=15)
-        if resp.status_code in (400, 409):
-            return resp.json(), resp.json().get("detail", "Bad request")
-        if resp.status_code == 401:
-            return None, L("auth.error.invalid_credentials")
-        if resp.status_code == 403:
-            return None, resp.json().get("detail", "Access denied")
-        if resp.status_code == 404:
-            return None, resp.json().get("detail", "Not found")
-        resp.raise_for_status()
-        return resp.json(), None
-    except httpx.ConnectError:
-        return None, L("auth.error.network")
-    except Exception as exc:
-        return None, str(exc)
+    return _api_request("PUT", path, body)
 
 
 def _api_delete(path: str) -> tuple[dict | None, str | None]:
-    try:
-        headers = {}
-        if st.session_state.jwt:
-            headers["Authorization"] = f"Bearer {st.session_state.jwt}"
-        resp = httpx.delete(f"{GATEWAY_BASE}{path}", headers=headers, timeout=15)
-        if resp.status_code == 404:
-            return None, "Not found"
-        if resp.status_code == 401:
-            return None, L("auth.error.invalid_credentials")
-        if resp.status_code == 403:
-            return None, resp.json().get("detail", "Access denied")
-        resp.raise_for_status()
-        return resp.json(), None
-    except httpx.ConnectError:
-        return None, L("auth.error.network")
-    except Exception as exc:
-        return None, str(exc)
+    return _api_request("DELETE", path)
 
 
 # ── Auth helper functions ─────────────────────────────────────────────────
@@ -288,8 +252,8 @@ def _do_register(email: str, username: str, password: str):
     if not username or len(username) < 2:
         st.session_state.auth_error = L("auth.error.empty_username")
         return
-    if len(password) < 6:
-        st.session_state.auth_error = L("auth.error.weak_password")
+    if len(password) < PASSWORD_MIN:
+        st.session_state.auth_error = L("auth.error.weak_password", n=PASSWORD_MIN)
         return
     st.session_state.reg_loading = True
     data, err = _api_post("/api/v1/auth/register", {
@@ -458,7 +422,7 @@ elif st.session_state.auth_page in ("logged_in", "my_account"):
     if st.session_state.last_login:
         try:
             dt = datetime.fromisoformat(st.session_state.last_login.replace("Z", "+00:00"))
-            delta = datetime.now(timezone.utc) - dt
+            delta = datetime.now(UTC) - dt
             mins = int(delta.total_seconds() / 60)
             if mins < 60:
                 st.sidebar.caption(f"{L('login.last_login')} {mins} {'dk' if st.session_state.lang == 'tr' else 'min'}")
@@ -606,8 +570,8 @@ if not is_authenticated and not showing_profile and not is_guest:
                 if st.form_submit_button(L("login.reset_password"), use_container_width=True, type="primary"):
                     if np != np2:
                         st.error(L("auth.error.passwords_dont_match"))
-                    elif len(np) < 6:
-                        st.error(L("auth.error.weak_password"))
+                    elif len(np) < PASSWORD_MIN:
+                        st.error(L("auth.error.weak_password", n=PASSWORD_MIN))
                     else:
                         data, err = _api_post("/api/v1/auth/reset-password", {"token": st.session_state.reset_token, "password": np})
                         if err:
@@ -708,8 +672,8 @@ if showing_profile:
             if st.form_submit_button(L("profile.change_password"), use_container_width=True, type="primary"):
                 if new_pass != new_pass2:
                     st.error(L("auth.error.passwords_dont_match"))
-                elif len(new_pass) < 6:
-                    st.error(L("auth.error.weak_password"))
+                elif len(new_pass) < PASSWORD_MIN:
+                    st.error(L("auth.error.weak_password", n=PASSWORD_MIN))
                 else:
                     data, err = _api_post("/api/v1/auth/change-password", {
                         "current_password": cur_pass, "new_password": new_pass,
@@ -855,7 +819,7 @@ if not showing_profile:
                 (L("daily_change"), _fmt(stats_data.get("daily_change"), f" {currency}"), _fmt(stats_data.get("daily_change_pct"), " %")),
                 ("Market Cap", _fmt_int(fundamentals_data.get("marketCap")), None),
                 ("P/E", _fmt(fundamentals_data.get("trailingPE")), None),
-            ]):
+            ], strict=True):
                 col.metric(label, val, delta=delta) if val != "—" else col.empty()
 
             row_b = st.columns(4)
@@ -864,7 +828,7 @@ if not showing_profile:
                 ("52H Yüksek", _fmt(stats_data.get("week52_high"), f" {currency}"), None),
                 ("Beta", _fmt(fundamentals_data.get("beta")), None),
                 ("Temettü", _fmt(fundamentals_data.get("dividendYield"), " %"), _fmt(fundamentals_data.get("forwardPE"), " ileri P/E")),
-            ]):
+            ], strict=True):
                 col.metric(label, val, delta=delta) if val != "—" else col.empty()
 
             st.divider(); st.subheader(L("technical_indicators"))
@@ -875,7 +839,7 @@ if not showing_profile:
                 ("SMA 50", _fmt(stats_data.get("sma_50"), f" {currency}"), None),
                 ("Momentum 5g", _fmt(stats_data.get("momentum_5"), " %"), None),
                 ("Hacim/30g Ort", _fmt(stats_data.get("volume_vs_avg_pct"), " %"), None),
-            ]):
+            ], strict=True):
                 col.metric(label, val, delta=delta) if val != "—" else col.empty()
 
             wk_pos = stats_data.get("week52_position_pct")

@@ -8,23 +8,22 @@ from __future__ import annotations
 
 import csv
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
 
-from forecast.config import DEFAULT_PARAMS, EXPERIMENTS_CSV, MAPE_THRESHOLD
+from forecast.config import DEFAULT_PARAMS, EXPERIMENTS_CSV, MAPE_THRESHOLD, OPTUNA_N_TRIALS
+from forecast.data.normalization import normalize_ohlcv
+from forecast.data.providers.yahoo import YahooProvider
 from forecast.forecasting.model import (
     ModelError,
-    REGRESSOR_COLUMNS,
     evaluate,
-    forecast,
     naive_baseline_metrics,
     prepare_prophet_df,
     train_model,
+    validate_ticker,
 )
-from forecast.data.normalization import normalize_ohlcv
-from forecast.data.providers.yahoo import YahooProvider
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,7 @@ def log_experiment(
     notes: str = "",
 ) -> None:
     row = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "ticker": ticker,
         "changepoint_prior_scale": params.get("changepoint_prior_scale"),
         "seasonality_prior_scale": params.get("seasonality_prior_scale"),
@@ -64,7 +63,7 @@ def log_experiment(
 def tune_hyperparameters(
     df: pd.DataFrame,
     ticker: str = "SPCX",
-    n_trials: int = 30,
+    n_trials: int = OPTUNA_N_TRIALS,
 ) -> tuple[dict[str, Any], dict[str, float], dict[str, float]]:
     """Run Optuna-based hyperparameter optimization, with grid fallback."""
     try:
@@ -114,7 +113,7 @@ def _tune_grid(
 def _tune_optuna(
     df: pd.DataFrame,
     ticker: str = "SPCX",
-    n_trials: int = 30,
+    n_trials: int = OPTUNA_N_TRIALS,
 ) -> tuple[dict[str, Any], dict[str, float], dict[str, float]]:
     import optuna  # type: ignore[import-untyped]
 
@@ -180,8 +179,6 @@ def _tune_optuna(
 
 
 def fetch_data(ticker: str, start: str | None = None, end: str | None = None) -> pd.DataFrame:
-    from forecast.forecasting.model import validate_ticker
-
     ticker = validate_ticker(ticker)
     provider = YahooProvider()
     raw = provider.fetch_history(ticker, start=start, end=end)
@@ -190,10 +187,12 @@ def fetch_data(ticker: str, start: str | None = None, end: str | None = None) ->
 
 
 def run_backtest_check(
-    ticker: str = "SPCX", threshold: float = MAPE_THRESHOLD
+    ticker: str = "SPCX",
+    threshold: float = MAPE_THRESHOLD,
+    n_trials: int = OPTUNA_N_TRIALS,
 ) -> dict[str, Any]:
     df = fetch_data(ticker)
-    params, metrics, baseline = tune_hyperparameters(df, ticker=ticker)
+    params, metrics, baseline = tune_hyperparameters(df, ticker=ticker, n_trials=n_trials)
     passed = metrics["mape"] <= threshold
     return {
         "ticker": ticker,

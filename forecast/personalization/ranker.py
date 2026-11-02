@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from forecast.data.news.models import NewsItem
 
@@ -18,7 +17,7 @@ def score_news_item(
     now: datetime | None = None,
 ) -> float:
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     score = 0.0
 

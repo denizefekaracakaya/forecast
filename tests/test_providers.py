@@ -8,10 +8,10 @@ import pandas as pd
 import pytest
 
 from forecast.data.providers.yahoo import (
-    YahooProvider,
-    DataFetchError,
     BACKOFF_SECONDS,
     MAX_RETRIES,
+    DataFetchError,
+    YahooProvider,
 )
 
 

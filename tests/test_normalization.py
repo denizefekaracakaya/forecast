@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from forecast.data.normalization import normalize_ohlcv, NORMALIZED_COLUMNS
+from forecast.data.normalization import NORMALIZED_COLUMNS, normalize_ohlcv
 
 
 class TestNormalizeOHLCV:
