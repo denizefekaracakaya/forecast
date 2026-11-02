@@ -1,6 +1,6 @@
 # E-Forecast
 
-[![CI](https://github.com/Denizfe/SPCX-Forecast/actions/workflows/ci.yml/badge.svg)](https://github.com/Denizfe/SPCX-Forecast/actions/workflows/ci.yml)
+[![CI](https://github.com/denizefekaracakaya/forecast/actions/workflows/ci.yml/badge.svg)](https://github.com/denizefekaracakaya/forecast/actions/workflows/ci.yml)
 
 Prophet tabanlı günlük hisse fiyat tahmin platformu. Streamlit arayüzü geçmiş fiyatları, güven
 aralıklı tahminleri, temel verileri ve duygu analizli haberleri bir arada sunar; FastAPI gateway
