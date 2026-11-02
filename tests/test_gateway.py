@@ -8,8 +8,8 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from forecast.gateway.app import app, _cache
 from forecast.data.providers.yahoo import DataFetchError
+from forecast.gateway.app import _cache, app
 
 client = TestClient(app)
 
@@ -23,7 +23,8 @@ class TestHealth:
     def test_health_returns_ok(self) -> None:
         resp = client.get("/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json()["status"] == "ok"
+        assert resp.json()["version"]
 
 
 class TestMarkets:
@@ -84,3 +85,52 @@ class TestPrices:
         resp2 = client.get("/api/v1/prices/AAPL")
         assert resp2.status_code == 200
         assert mock_fetch.call_count == call_count_after_first
+
+
+class TestPriceCacheIsolation:
+    @patch("forecast.gateway.app._provider.fetch_history")
+    def test_ranged_query_does_not_poison_default_cache(self, mock_fetch) -> None:
+        dates = pd.date_range("2024-01-01", periods=5, freq="B")
+        full = pd.DataFrame({"Close": [1, 2, 3, 4, 5]}, index=dates)
+        mock_fetch.return_value = full.iloc[:2]
+        resp = client.get("/api/v1/prices/AAPL?start=2024-01-01&end=2024-01-02")
+        assert resp.json()["count"] == 2
+
+        mock_fetch.return_value = full
+        resp = client.get("/api/v1/prices/AAPL")
+        assert resp.json()["count"] == 5
+
+    def test_invalid_date_returns_422(self) -> None:
+        resp = client.get("/api/v1/prices/AAPL?start=yesterday")
+        assert resp.status_code == 422
+
+    def test_start_after_end_returns_422(self) -> None:
+        resp = client.get("/api/v1/prices/AAPL?start=2024-02-01&end=2024-01-01")
+        assert resp.status_code == 422
+
+
+class TestNews:
+    def test_ticker_news_serialization(self) -> None:
+        from datetime import UTC, datetime
+
+        from forecast.data.news.models import NewsItem
+
+        item = NewsItem(
+            id="n1",
+            title="Apple beats",
+            summary="s",
+            source="Reuters",
+            url="https://example.com/a",
+            published_at=datetime(2024, 1, 2, tzinfo=UTC),
+            ticker="AAPL",
+        )
+        with patch("forecast.gateway.app._news_provider.fetch_news", return_value=[item]):
+            resp = client.get("/api/v1/news/AAPL")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["count"] == 1
+        assert body["data"][0]["id"] == "n1"
+        assert body["data"][0]["published_at"].startswith("2024-01-02")
+
+    def test_unsupported_ticker_news_404(self) -> None:
+        assert client.get("/api/v1/news/NOPE").status_code == 404

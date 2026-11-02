@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eforecast"
-version = "0.1.0"
+version = "0.2.0"
 description = "E-Forecast — Prophet-based market forecasting platform"
 requires-python = ">=3.11"
 dynamic = ["dependencies"]
@@ -28,11 +28,17 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "B"]
+# B008: FastAPI's Depends()/Query() defaults are idiomatic, not a bug.
+# E501: line length is a formatter concern, not a lint error.
+ignore = ["B008", "E501"]
 
-[tool.black]
-line-length = 100
-target-version = ["py311"]
+[tool.ruff.lint.per-file-ignores]
+# Streamlit UI: dense layout code, and env loading must precede imports.
+"app.py" = ["E402", "E701", "E702", "E731"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["forecast"]
 
 [tool.mypy]
 python_version = "3.11"

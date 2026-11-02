@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from forecast.config import settings
 
@@ -63,7 +62,7 @@ class NewsAPIProvider:
             if not isinstance(art, dict):
                 continue
             pub_str = art.get("publishedAt", "")
-            pub_date = _parse_iso(pub_str) if pub_str else datetime.now(timezone.utc)
+            pub_date = _parse_iso(pub_str) if pub_str else datetime.now(UTC)
             results.append(
                 NewsAPIResult(
                     title=art.get("title", "") or "",
@@ -97,7 +96,7 @@ class NewsAPIProvider:
             if not isinstance(art, dict):
                 continue
             pub_str = art.get("publishedAt", "")
-            pub_date = _parse_iso(pub_str) if pub_str else datetime.now(timezone.utc)
+            pub_date = _parse_iso(pub_str) if pub_str else datetime.now(UTC)
             results.append(
                 NewsAPIResult(
                     title=art.get("title", "") or "",
@@ -115,4 +114,4 @@ def _parse_iso(iso_str: str) -> datetime:
     try:
         return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
     except (ValueError, TypeError):
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)

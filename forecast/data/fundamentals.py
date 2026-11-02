@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -124,9 +123,8 @@ def compute_price_stats(df: pd.DataFrame) -> dict:
 
     # YTD change
     try:
-        year_start = df["ds"].min()
         # normalize_ohlcv resets to a RangeIndex, so the current year always comes from wall-clock time
-        ytd_mask = df["ds"] >= pd.Timestamp(year=datetime.now(timezone.utc).year, month=1, day=1)
+        ytd_mask = df["ds"] >= pd.Timestamp(year=datetime.now(UTC).year, month=1, day=1)
         if ytd_mask.any():
             first_ytd_idx = ytd_mask.idxmax()
             ytd_start_close = float(close.loc[first_ytd_idx])

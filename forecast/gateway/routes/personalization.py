@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, delete
+from fastapi.concurrency import run_in_threadpool
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forecast.config import SUPPORTED_TICKERS
@@ -14,6 +14,12 @@ from forecast.data.database import get_session
 from forecast.data.news import get_news_provider
 from forecast.data.orm_models import NewsFeedback, User, UserPreference, Watchlist
 from forecast.gateway.dependencies import get_current_user
+from forecast.gateway.schemas import (
+    FeedbackRequest,
+    PreferencesUpdate,
+    WatchlistAdd,
+    news_to_dict,
+)
 from forecast.personalization.ranker import rank_news
 
 logger = logging.getLogger(__name__)
@@ -21,6 +27,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/users", tags=["personalization"])
 
 _news_provider = get_news_provider()
+
+
+async def _get_prefs(session: AsyncSession, user_id: int) -> UserPreference | None:
+    # UserPreference's primary key is its own id, not user_id — look up by FK.
+    result = await session.execute(
+        select(UserPreference).where(UserPreference.user_id == user_id)
+    )
+    return result.scalar_one_or_none()
 
 
 def _check_ownership(current_user: User, user_id: int) -> None:
@@ -57,9 +71,15 @@ async def get_preferences(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     _check_ownership(current_user, user_id)
-    prefs = await session.get(UserPreference, user_id)
+    prefs = await _get_prefs(session, user_id)
     if prefs is None:
-        return {"preferred_sectors": [], "sentiment_bias": "neutral", "risk_level": "medium", "max_news_per_ticker": 5, "dark_theme": False}
+        return {
+            "preferred_sectors": [],
+            "sentiment_bias": "neutral",
+            "risk_level": "medium",
+            "max_news_per_ticker": 5,
+            "dark_theme": False,
+        }
     return {
         "preferred_sectors": prefs.preferred_sectors or [],
         "sentiment_bias": prefs.sentiment_bias or "neutral",
@@ -72,26 +92,20 @@ async def get_preferences(
 @router.put("/{user_id}/preferences")
 async def update_preferences(
     user_id: int,
-    body: dict[str, Any],
+    body: PreferencesUpdate,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     _check_ownership(current_user, user_id)
-    prefs = await session.get(UserPreference, user_id)
+    prefs = await _get_prefs(session, user_id)
     if prefs is None:
         prefs = UserPreference(user_id=user_id)
         session.add(prefs)
 
-    if "preferred_sectors" in body:
-        prefs.preferred_sectors = body["preferred_sectors"]
-    if "sentiment_bias" in body:
-        prefs.sentiment_bias = body["sentiment_bias"]
-    if "risk_level" in body:
-        prefs.risk_level = body["risk_level"]
-    if "max_news_per_ticker" in body:
-        prefs.max_news_per_ticker = body["max_news_per_ticker"]
-    if "dark_theme" in body:
-        prefs.dark_theme = 1 if body["dark_theme"] else 0
+    for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
+        if field == "dark_theme":
+            value = 1 if value else 0
+        setattr(prefs, field, value)
 
     await session.commit()
     return await get_preferences(user_id, current_user, session)
@@ -114,12 +128,12 @@ async def get_watchlist(
 @router.post("/{user_id}/watchlist")
 async def add_to_watchlist(
     user_id: int,
-    body: dict[str, str],
+    body: WatchlistAdd,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     _check_ownership(current_user, user_id)
-    ticker = body.get("ticker", "").upper().strip()
+    ticker = body.ticker.upper().strip()
     if ticker not in SUPPORTED_TICKERS:
         raise HTTPException(status_code=400, detail=f"Unsupported ticker: {ticker}")
 
@@ -159,18 +173,23 @@ async def remove_from_watchlist(
 @router.post("/{user_id}/feedback")
 async def submit_feedback(
     user_id: int,
-    body: dict[str, Any],
+    body: FeedbackRequest,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     _check_ownership(current_user, user_id)
-    feedback = NewsFeedback(
-        user_id=user_id,
-        news_id=body.get("news_id", ""),
-        ticker=body.get("ticker", "").upper().strip(),
-        rating=body.get("rating", 0),
+    ticker = body.ticker.upper().strip()
+    # One vote per user per article — a new vote replaces the old one.
+    existing = await session.execute(
+        select(NewsFeedback).where(
+            NewsFeedback.user_id == user_id, NewsFeedback.news_id == body.news_id
+        )
     )
-    session.add(feedback)
+    feedback = existing.scalars().first()
+    if feedback is None:
+        feedback = NewsFeedback(user_id=user_id, news_id=body.news_id, ticker=ticker)
+        session.add(feedback)
+    feedback.rating = body.rating
     await session.commit()
     return {"status": "recorded", "news_id": feedback.news_id, "rating": feedback.rating}
 
@@ -208,7 +227,7 @@ async def get_personalized_news(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     _check_ownership(current_user, user_id)
-    prefs = await session.get(UserPreference, user_id)
+    prefs = await _get_prefs(session, user_id)
     preferred_sectors = prefs.preferred_sectors if prefs and prefs.preferred_sectors else []
     sentiment_bias = prefs.sentiment_bias if prefs and prefs.sentiment_bias else "neutral"
 
@@ -222,10 +241,13 @@ async def get_personalized_news(
     for fb in fb_result.scalars().all():
         feedback_signals[fb.news_id] = fb.rating
 
-    market_news = _news_provider.fetch_market_news(max_results=max_results)
+    # News providers do blocking network I/O — keep it off the event loop.
+    market_news = await run_in_threadpool(_news_provider.fetch_market_news, max_results=max_results)
     ticker_news: list = []
     for ticker in watchlist:
-        ticker_news.extend(_news_provider.fetch_news(ticker, max_results=5))
+        ticker_news.extend(
+            await run_in_threadpool(_news_provider.fetch_news, ticker, max_results=5)
+        )
 
     all_news = list({n.id: n for n in market_news + ticker_news}.values())
 
@@ -237,25 +259,17 @@ async def get_personalized_news(
         feedback_signals=feedback_signals,
     )
 
+    top = scored[:max_results]
     return {
-        "count": len(scored[:max_results]),
+        "count": len(top),
         "data": [
-            {
-                "id": item.id,
-                "title": item.title,
-                "summary": item.summary,
-                "source": item.source,
-                "url": item.url,
-                "published_at": item.published_at.isoformat() if hasattr(item.published_at, "isoformat") else str(item.published_at),
-                "ticker": item.ticker,
-                "sentiment": item.sentiment,
-                "sentiment_score": item.sentiment_score,
-                "importance_score": item.importance_score,
-                "related_tickers": item.related_tickers,
-                "sectors": item.sectors,
-                "personalized_score": round(score, 4),
-                "source_provider": item.source_provider,
-            }
-            for item, score in scored[:max_results]
+            news_to_dict(
+                item,
+                ticker=item.ticker,
+                sectors=item.sectors,
+                personalized_score=round(score, 4),
+                source_provider=item.source_provider,
+            )
+            for item, score in top
         ],
     }

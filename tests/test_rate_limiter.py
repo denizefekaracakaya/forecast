@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from forecast.data.rate_limiter import RateLimiter, shared_limiter
 
 
@@ -31,7 +29,8 @@ class TestRateLimiter:
         for _ in range(3):
             limiter.wait()
         elapsed = time.monotonic() - t0
-        assert elapsed >= 0.2
+        # Small tolerance: Windows' monotonic clock ticks at ~15.6 ms.
+        assert elapsed >= 0.18
 
     def test_shared_limiter_singleton(self) -> None:
         a = shared_limiter()

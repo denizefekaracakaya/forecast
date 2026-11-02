@@ -5,7 +5,6 @@ Usage:
     python run_local.py --app    # streamlit only
     python run_local.py --gateway  # gateway only
 
-Requires: pip install aiosqlite uvicorn
 Database: auto-creates SQLite file ./forecast.db (set via DATABASE_URL in .env)
 """
 
